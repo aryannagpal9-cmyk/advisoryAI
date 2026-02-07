@@ -13,6 +13,7 @@ from services.exceptions import DatabaseError, NotFoundError, ValidationError
 
 import json
 import os
+import traceback
 from collections import defaultdict
 
 router = APIRouter()
@@ -363,19 +364,20 @@ async def simulate_advance_day():
     from agents.smart_agent import SmartAgent
     
     actions_taken = []
-    llm = GroqService()
-    agent = SmartAgent(supabase, llm.client)
-    
-    # 1. ADVANCE PERSISTENT CLOCK
-    simulated_now = _advance_simulated_now()
-    logger.info(f"ADVANCING SIMULATION TO: {simulated_now}")
+    try:
+        llm = GroqService()
+        agent = SmartAgent(supabase, llm.client)
+        
+        # 1. ADVANCE PERSISTENT CLOCK
+        simulated_now = _advance_simulated_now()
+        logger.info(f"ADVANCING SIMULATION TO: {simulated_now}")
 
-    # 2. CREATE NEW CASE (Trigger Immediate First Outreach)
-    if random.random() < 0.75:
-        try:
-            clients = supabase.table("clients").select("id, name").execute().data or []
-            if clients:
-                client = random.choice(clients)
+        # 2. CREATE NEW CASE (Trigger Immediate First Outreach)
+        if random.random() < 0.75:
+            try:
+                clients = supabase.table("clients").select("id, name").execute().data or []
+                if clients:
+                    client = random.choice(clients)
                 case_types = ["Pension Transfer", "ISA Top Up", "Annual Review", "Protection Review", "New Investment", "Mortgage Application"]
                 title = f"{random.choice(case_types)} - {client['name'].split()[-1]}"
                 
@@ -420,17 +422,17 @@ async def simulate_advance_day():
                         "reason": f"New inbound case: {title}", "created_at": simulated_now.isoformat()
                     }).execute()
                     actions_taken.append({"action": "CASE_CREATED", "description": f"New case: {title}"})
-        except Exception as e: logger.error(f"Error in Case Creation: {e}")
+            except Exception as e: logger.error(f"Error in Case Creation: {e}")
 
-    # 3. MEETING COMPLETION & MINUTES OF MEETING (MoM)
-    try:
-        overdue_meetings = supabase.table("meetings").select("*, clients(id, name, email)").eq("status", "SCHEDULED").lte("scheduled_at", simulated_now.isoformat()).execute().data or []
-        for meeting in overdue_meetings:
-            supabase.table("meetings").update({"status": "COMPLETED", "notes": "Meeting held. Minutes of Meeting sent."}).eq("id", meeting["id"]).execute()
-            
-            # Gather meeting details for MoM
-            client_name = meeting.get("clients", {}).get("name", "Client")
-            client_email = meeting.get("clients", {}).get("email")
+        # 3. MEETING COMPLETION & MINUTES OF MEETING (MoM)
+        try:
+            overdue_meetings = supabase.table("meetings").select("*, clients(id, name, email)").eq("status", "SCHEDULED").lte("scheduled_at", simulated_now.isoformat()).execute().data or []
+            for meeting in overdue_meetings:
+                supabase.table("meetings").update({"status": "COMPLETED", "notes": "Meeting held. Minutes of Meeting sent."}).eq("id", meeting["id"]).execute()
+                
+                # Gather meeting details for MoM
+                client_name = (meeting.get("clients") or {}).get("name", "Client")
+                client_email = (meeting.get("clients") or {}).get("email")
             meeting_title = meeting.get("title", "Meeting")
             topics = meeting.get("topics_discussed") or ["General discussion"]
             recommendations = meeting.get("recommendations_made") or []
@@ -485,239 +487,243 @@ Sign off as "AdvisoryAI Team". Keep it concise but comprehensive."""
                 "reason": f"Minutes of Meeting sent for: {meeting_title}", "created_at": simulated_now.isoformat()
             }).execute()
             actions_taken.append({"action": "MOM_SENT", "description": f"Minutes of Meeting sent for: {meeting_title}"})
-    except Exception as e: logger.error(f"Error in Meeting Completion/MoM: {e}")
+        except Exception as e: logger.error(f"Error in Meeting Completion/MoM: {e}")
 
-    # 3b. SCHEDULE NEW MEETINGS
-    if random.random() < 0.3:
-        try:
-            clients = supabase.table("clients").select("id, name, email").execute().data or []
-            if clients:
-                client = random.choice(clients)
-                meeting_types = ["Annual Review", "Investment Strategy", "Retirement Planning", "Tax Optimization", "Portfolio Rebalancing"]
-                title = f"{random.choice(meeting_types)} with {client['name']}"
-                
-                # Schedule 2-10 days in the future
-                scheduled_at = simulated_now + timedelta(days=random.randint(2, 10), hours=random.randint(9, 16))
-                
-                new_meeting = supabase.table("meetings").insert({
-                    "client_id": client["id"],
-                    "title": title,
-                    "status": "SCHEDULED",
-                    "meeting_type": "VIDEO_CALL",
-                    "scheduled_at": scheduled_at.isoformat(),
-                    "created_at": simulated_now.isoformat(),
-                    "topics_discussed": [random.choice(meeting_types)],
-                    "recommendations_made": [{"type": "Follow-up", "detail": "Discussed during simulation"}]
-                }).execute()
-                
-                if new_meeting.data:
-                    actions_taken.append({
-                        "action": "MEETING_SCHEDULED", 
-                        "description": f"New meeting scheduled: {title} on {scheduled_at.strftime('%d %b')}"
-                    })
-                    
-                    supabase.table("audit_logs").insert({
-                        "action": "MEETING_SCHEDULED", "actor": "SYSTEM",
-                        "reason": f"System scheduled a meeting: {title}", 
-                        "created_at": simulated_now.isoformat()
-                    }).execute()
-        except Exception as e: logger.error(f"Error Scheduling Meeting: {e}")
-
-    # 4. MASTER CHASE LOOP (Agent checks ALL pending daily)
-    logger.info(f"AGENT CHECKING DAILY CHASES: {simulated_now.date()}")
-    pending = supabase.table("requests").select("*, cases(id, title, clients(id, name, email))").eq("status", "PENDING").execute()
-
-    
-    for req in (pending.data or []):
-        if req.get("next_action_at"):
+        # 3b. SCHEDULE NEW MEETINGS
+        if random.random() < 0.3:
             try:
-                next_action_str = req["next_action_at"].replace('Z', '+00:00')
-                next_action = datetime.fromisoformat(next_action_str)
-                if next_action.tzinfo is None:
-                    next_action = next_action.replace(tzinfo=timezone.utc)
-                
-                if next_action <= simulated_now:
-                    # Agent handles the chase logic
-                    chase_res = await agent._trigger_chase(req["id"], simulated_now=simulated_now)
-                    if chase_res.get("success"):
-                        actions_taken.append({
-                            "action": chase_res.get("action", "CHASE_SENT"),
-                            "description": f"Automated action for {req['title']}: {chase_res.get('action')}",
-                            "request_id": req["id"]
-                        })
-            except Exception as e:
-                logger.error(f"Error in chase logic for request {req.get('id')}: {e}")
-
-    # --- 5. Check if any cases can be auto-completed ---
-    try:
-        active_cases = supabase.table("cases").select("id").eq("status", "ACTIVE").execute().data or []
-        for case in active_cases:
-            case_requests = supabase.table("requests").select("status").eq("case_id", case["id"]).execute().data or []
-            if case_requests and all(r["status"] == "FULFILLED" for r in case_requests):
-                supabase.table("cases").update({
-                    "status": "COMPLETED",
-                    "updated_at": simulated_now.isoformat()
-                }).eq("id", case["id"]).execute()
-                
-                supabase.table("audit_logs").insert({
-                    "case_id": case["id"],
-                    "action": "CASE_COMPLETED",
-                    "actor": "SYSTEM",
-                    "reason": "All requests fulfilled - case auto-completed",
-                    "created_at": simulated_now.isoformat()
-                }).execute()
-                
-                actions_taken.append({
-                    "action": "CASE_COMPLETED",
-                    "description": "Case auto-completed (all requests fulfilled)",
-                    "case_id": case["id"]
-                })
-    except Exception as e:
-        logger.error(f"Error checking case completion: {e}")
-
-    # 6. PROACTIVE BIRTHDAY EMAILS
-    try:
-        # Note: date_of_birth column is missing from DB, using deterministic generator for simulation
-        clients_result = supabase.table("clients").select("id, name, email").execute()
-        today = simulated_now.date()
-        
-        for client in (clients_result.data or []):
-            # Deterministic birthday based on client ID hash to ensure consistency in simulation
-            import hashlib
-            h = int(hashlib.md5(client["id"].encode()).hexdigest(), 16)
-            
-            # Map hash to a day of the year (1-365)
-            # This ensures each client has a stable "birthday" during simulation
-            day_of_year = (h % 365) + 1
-            
-            # Check if this day of year matches "today"
-            # (Simple approximation for leap years)
-            current_day_of_year = today.timetuple().tm_yday
-            
-            if current_day_of_year == day_of_year:
-                # Today is their simulated birthday!
-                birthday_prompt = f"""Write a warm, personalized birthday greeting email for {client['name']}.
-Keep it professional but heartfelt. Mention how valued they are as a client.
-Sign off as "AdvisoryAI Team". Keep it to 2-3 short paragraphs."""
-                
-                birthday_body = await llm.generate_completion(birthday_prompt)
-                
-                supabase.table("email_drafts").insert({
-                    "client_id": client["id"],
-                    "to_email": client.get("email"),
-                    "to_name": client["name"],
-                    "subject": f"Happy Birthday, {client['name'].split()[0]}! 🎂",
-                    "body": birthday_body,
-                    "context_type": "BIRTHDAY",
-                    "context_summary": "Birthday greeting",
-                    "sent_at": simulated_now.isoformat(),
-                    "created_at": simulated_now.isoformat()
-                }).execute()
-                
-                supabase.table("audit_logs").insert({
-                    "action": "BIRTHDAY_EMAIL_SENT", "actor": "SYSTEM",
-                    "reason": f"Birthday greeting sent to {client['name']}", 
-                    "created_at": simulated_now.isoformat()
-                }).execute()
-                
-                actions_taken.append({
-                    "action": "BIRTHDAY_EMAIL_SENT",
-                    "description": f"Birthday greeting sent to {client['name']}"
-                })
-    except Exception as e:
-        logger.error(f"Error in birthday emails: {e}")
-
-    # 7. PROACTIVE CLIENT RELATIONSHIP EMAILS (No recent contact)
-    try:
-        # Find clients without recent emails (30+ days)
-        thirty_days_ago = (simulated_now - timedelta(days=30)).isoformat()
-        all_clients = supabase.table("clients").select("id, name, email").execute().data or []
-        
-        for client in random.sample(all_clients, min(2, len(all_clients))):  # Max 2 per day
-            recent_emails = supabase.table("email_drafts").select("id").eq(
-                "client_id", client["id"]
-            ).gte("created_at", thirty_days_ago).limit(1).execute().data
-            
-            if not recent_emails:
-                checkin_prompt = f"""Write a brief, friendly check-in email for {client['name']}.
-Ask how they're doing and if there's anything we can help with regarding their financial goals.
-Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
-                
-                checkin_body = await llm.generate_completion(checkin_prompt)
-                
-                supabase.table("email_drafts").insert({
-                    "client_id": client["id"],
-                    "to_email": client.get("email"),
-                    "to_name": client["name"],
-                    "subject": f"Checking In - {client['name'].split()[0]}",
-                    "body": checkin_body,
-                    "context_type": "RELATIONSHIP",
-                    "context_summary": "Proactive check-in",
-                    "sent_at": simulated_now.isoformat(),
-                    "created_at": simulated_now.isoformat()
-                }).execute()
-                
-                actions_taken.append({
-                    "action": "RELATIONSHIP_EMAIL_SENT",
-                    "description": f"Proactive check-in sent to {client['name']}"
-                })
-    except Exception as e:
-        logger.error(f"Error in relationship emails: {e}")
-
-    # 8. SIMULATE INBOUND EMAILS (Client Replies)
-    if random.random() < 0.6:  # 60% chance of inbound emails
-        try:
-            num_inbound = random.randint(1, 3)
-            clients = supabase.table("clients").select("id, name, email").execute().data or []
-            
-            inbound_types = [
-                ("Document Submission", "Please find attached the documents you requested."),
-                ("Query", "I have a question about my portfolio performance."),
-                ("Meeting Request", "Could we schedule a call to discuss my retirement plans?"),
-                ("Thank You", "Thank you for your help with my ISA application."),
-                ("Update Request", "Could you provide an update on my case?")
-            ]
-            
-            for _ in range(num_inbound):
+                clients = supabase.table("clients").select("id, name, email").execute().data or []
                 if clients:
                     client = random.choice(clients)
-                    inbound_type, base_content = random.choice(inbound_types)
+                    meeting_types = ["Annual Review", "Investment Strategy", "Retirement Planning", "Tax Optimization", "Portfolio Rebalancing"]
+                    title = f"{random.choice(meeting_types)} with {client['name']}"
+                    
+                    # Schedule 2-10 days in the future
+                    scheduled_at = simulated_now + timedelta(days=random.randint(2, 10), hours=random.randint(9, 16))
+                    
+                    new_meeting = supabase.table("meetings").insert({
+                        "client_id": client["id"],
+                        "title": title,
+                        "status": "SCHEDULED",
+                        "meeting_type": "VIDEO_CALL",
+                        "scheduled_at": scheduled_at.isoformat(),
+                        "created_at": simulated_now.isoformat(),
+                        "topics_discussed": [random.choice(meeting_types)],
+                        "recommendations_made": [{"type": "Follow-up", "detail": "Discussed during simulation"}]
+                    }).execute()
+                    
+                    if new_meeting.data:
+                        actions_taken.append({
+                            "action": "MEETING_SCHEDULED", 
+                            "description": f"New meeting scheduled: {title} on {scheduled_at.strftime('%d %b')}"
+                        })
+                        
+                        supabase.table("audit_logs").insert({
+                            "action": "MEETING_SCHEDULED", "actor": "SYSTEM",
+                            "reason": f"System scheduled a meeting: {title}", 
+                            "created_at": simulated_now.isoformat()
+                        }).execute()
+            except Exception as e: logger.error(f"Error Scheduling Meeting: {e}")
+
+        # 4. MASTER CHASE LOOP (Agent checks ALL pending daily)
+        logger.info(f"AGENT CHECKING DAILY CHASES: {simulated_now.date()}")
+        pending = supabase.table("requests").select("*, cases(id, title, clients(id, name, email))").eq("status", "PENDING").execute()
+
+        
+        for req in (pending.data or []):
+            if req.get("next_action_at"):
+                try:
+                    next_action_str = req["next_action_at"].replace('Z', '+00:00')
+                    next_action = datetime.fromisoformat(next_action_str)
+                    if next_action.tzinfo is None:
+                        next_action = next_action.replace(tzinfo=timezone.utc)
+                    
+                    if next_action <= simulated_now:
+                        # Agent handles the chase logic
+                        chase_res = await agent._trigger_chase(req["id"], simulated_now=simulated_now)
+                        if chase_res.get("success"):
+                            actions_taken.append({
+                                "action": chase_res.get("action", "CHASE_SENT"),
+                                "description": f"Automated action for {req['title']}: {chase_res.get('action')}",
+                                "request_id": req["id"]
+                            })
+                except Exception as e:
+                    logger.error(f"Error in chase logic for request {req.get('id')}: {e}")
+
+        # --- 5. Check if any cases can be auto-completed ---
+        try:
+            active_cases = supabase.table("cases").select("id").eq("status", "ACTIVE").execute().data or []
+            for case in active_cases:
+                case_requests = supabase.table("requests").select("status").eq("case_id", case["id"]).execute().data or []
+                if case_requests and all(r["status"] == "FULFILLED" for r in case_requests):
+                    supabase.table("cases").update({
+                        "status": "COMPLETED",
+                        "updated_at": simulated_now.isoformat()
+                    }).eq("id", case["id"]).execute()
+                    
+                    supabase.table("audit_logs").insert({
+                        "case_id": case["id"],
+                        "action": "CASE_COMPLETED",
+                        "actor": "SYSTEM",
+                        "reason": "All requests fulfilled - case auto-completed",
+                        "created_at": simulated_now.isoformat()
+                    }).execute()
+                    
+                    actions_taken.append({
+                        "action": "CASE_COMPLETED",
+                        "description": "Case auto-completed (all requests fulfilled)",
+                        "case_id": case["id"]
+                    })
+        except Exception as e:
+            logger.error(f"Error checking case completion: {e}")
+
+        # 6. PROACTIVE BIRTHDAY EMAILS
+        try:
+            # Note: date_of_birth column is missing from DB, using deterministic generator for simulation
+            clients_result = supabase.table("clients").select("id, name, email").execute()
+            today = simulated_now.date()
+            
+            for client in (clients_result.data or []):
+                # Deterministic birthday based on client ID hash to ensure consistency in simulation
+                import hashlib
+                h = int(hashlib.md5(client["id"].encode()).hexdigest(), 16)
+                
+                # Map hash to a day of the year (1-365)
+                # This ensures each client has a stable "birthday" during simulation
+                day_of_year = (h % 365) + 1
+                
+                # Check if this day of year matches "today"
+                # (Simple approximation for leap years)
+                current_day_of_year = today.timetuple().tm_yday
+                
+                if current_day_of_year == day_of_year:
+                    # Today is their simulated birthday!
+                    birthday_prompt = f"""Write a warm, personalized birthday greeting email for {client['name']}.
+Keep it professional but heartfelt. Mention how valued they are as a client.
+Sign off as "AdvisoryAI Team". Keep it to 2-3 short paragraphs."""
+                    
+                    birthday_body = await llm.generate_completion(birthday_prompt)
                     
                     supabase.table("email_drafts").insert({
                         "client_id": client["id"],
-                        "to_email": "advisor@advisoryai.com",
-                        "to_name": "AdvisoryAI Team",
-                        "subject": f"Re: {inbound_type} - {client['name']}",
-                        "body": f"From: {client['name']} <{client.get('email')}>\n\nHi,\n\n{base_content}\n\nBest regards,\n{client['name']}",
-                        "context_type": "INBOUND",
-                        "context_summary": f"Client reply: {inbound_type}",
+                        "to_email": client.get("email"),
+                        "to_name": client["name"],
+                        "subject": f"Happy Birthday, {client['name'].split()[0]}! 🎂",
+                        "body": birthday_body,
+                        "context_type": "BIRTHDAY",
+                        "context_summary": "Birthday greeting",
+                        "sent_at": simulated_now.isoformat(),
+                        "created_at": simulated_now.isoformat()
+                    }).execute()
+                    
+                    supabase.table("audit_logs").insert({
+                        "action": "BIRTHDAY_EMAIL_SENT", "actor": "SYSTEM",
+                        "reason": f"Birthday greeting sent to {client['name']}", 
+                        "created_at": simulated_now.isoformat()
+                    }).execute()
+                    
+                    actions_taken.append({
+                        "action": "BIRTHDAY_EMAIL_SENT",
+                        "description": f"Birthday greeting sent to {client['name']}"
+                    })
+        except Exception as e:
+            logger.error(f"Error in birthday emails: {e}")
+
+        # 7. PROACTIVE CLIENT RELATIONSHIP EMAILS (No recent contact)
+        try:
+            # Find clients without recent emails (30+ days)
+            thirty_days_ago = (simulated_now - timedelta(days=30)).isoformat()
+            all_clients = supabase.table("clients").select("id, name, email").execute().data or []
+            
+            for client in random.sample(all_clients, min(2, len(all_clients))):  # Max 2 per day
+                recent_emails = supabase.table("email_drafts").select("id").eq(
+                    "client_id", client["id"]
+                ).gte("created_at", thirty_days_ago).limit(1).execute().data
+                
+                if not recent_emails:
+                    checkin_prompt = f"""Write a brief, friendly check-in email for {client['name']}.
+Ask how they're doing and if there's anything we can help with regarding their financial goals.
+Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
+                    
+                    checkin_body = await llm.generate_completion(checkin_prompt)
+                    
+                    supabase.table("email_drafts").insert({
+                        "client_id": client["id"],
+                        "to_email": client.get("email"),
+                        "to_name": client["name"],
+                        "subject": f"Checking In - {client['name'].split()[0]}",
+                        "body": checkin_body,
+                        "context_type": "RELATIONSHIP",
+                        "context_summary": "Proactive check-in",
                         "sent_at": simulated_now.isoformat(),
                         "created_at": simulated_now.isoformat()
                     }).execute()
                     
                     actions_taken.append({
-                        "action": "INBOUND_EMAIL_RECEIVED",
-                        "description": f"Email from {client['name']}: {inbound_type}"
+                        "action": "RELATIONSHIP_EMAIL_SENT",
+                        "description": f"Proactive check-in sent to {client['name']}"
                     })
         except Exception as e:
-            logger.error(f"Error simulating inbound emails: {e}")
+            logger.error(f"Error in relationship emails: {e}")
 
-    # Guaranteed feedback
-    actions_taken.append({
-        "action": "TIME_ADVANCED",
-        "description": f"Date advanced to {simulated_now.strftime('%d %b %Y')}"
-    })
+        # 8. SIMULATE INBOUND EMAILS (Client Replies)
+        if random.random() < 0.6:  # 60% chance of inbound emails
+            try:
+                num_inbound = random.randint(1, 3)
+                clients = supabase.table("clients").select("id, name, email").execute().data or []
+                
+                inbound_types = [
+                    ("Document Submission", "Please find attached the documents you requested."),
+                    ("Query", "I have a question about my portfolio performance."),
+                    ("Meeting Request", "Could we schedule a call to discuss my retirement plans?"),
+                    ("Thank You", "Thank you for your help with my ISA application."),
+                    ("Update Request", "Could you provide an update on my case?")
+                ]
+                
+                for _ in range(num_inbound):
+                    if clients:
+                        client = random.choice(clients)
+                        inbound_type, base_content = random.choice(inbound_types)
+                        
+                        supabase.table("email_drafts").insert({
+                            "client_id": client["id"],
+                            "to_email": "advisor@advisoryai.com",
+                            "to_name": "AdvisoryAI Team",
+                            "subject": f"Re: {inbound_type} - {client['name']}",
+                            "body": f"From: {client['name']} <{client.get('email')}>\n\nHi,\n\n{base_content}\n\nBest regards,\n{client['name']}",
+                            "context_type": "INBOUND",
+                            "context_summary": f"Client reply: {inbound_type}",
+                            "sent_at": simulated_now.isoformat(),
+                            "created_at": simulated_now.isoformat()
+                        }).execute()
+                        
+                        actions_taken.append({
+                            "action": "INBOUND_EMAIL_RECEIVED",
+                            "description": f"Email from {client['name']}: {inbound_type}"
+                        })
+            except Exception as e:
+                logger.error(f"Error simulating inbound emails: {e}")
+
+        # Guaranteed feedback
+        actions_taken.append({
+            "action": "TIME_ADVANCED",
+            "description": f"Date advanced to {simulated_now.strftime('%d %b %Y')}"
+        })
 
 
-    # Invalidate Cache
-    global _dashboard_cache
-    _dashboard_cache = {"data": None, "timestamp": None}
+        # Invalidate Cache
+        global _dashboard_cache
+        _dashboard_cache = {"data": None, "timestamp": None}
 
-    return {
-        "simulated_date": simulated_now.isoformat(),
-        "actions_taken": len(actions_taken),
-        "details": actions_taken
-    }
+        return {
+            "simulated_date": simulated_now.isoformat(),
+            "actions_taken": len(actions_taken),
+            "details": actions_taken
+        }
+    except Exception as e:
+        logger.error(f"FATAL ERROR in /simulate/advance-day: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Simulation error: {str(e)}")
 
 
 @router.post("/simulate/reset")

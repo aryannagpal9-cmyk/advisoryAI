@@ -392,12 +392,11 @@ class SmartAgent:
         try:
             req_res = self.supabase.table("requests").select("*, cases(title, clients(id, name, email))").eq("id", request_id).single().execute()
             req = req_res.data
+            if not req:
+                return {"success": False, "error": "Request not found"}
         except Exception as e:
             logger.error(f"Error fetching request {request_id}: {e}")
             return {"success": False, "error": str(e)}
-
-        if not req:
-            return {"success": False, "error": "Request not found"}
 
         case = req.get("cases", {}) or {}
         client = case.get("clients", {}) or {}
@@ -411,58 +410,59 @@ class SmartAgent:
         
         Keep it concise. Sign off as 'AdvisoryAI Team'."""
         
-        email_body = "Draft content unavailable."
+        email_body = f"Dear {client.get('name', 'Client')},\n\nWe are following up on {req.get('title')}. Please provide this at your earliest convenience.\n\nBest,\nAdvisoryAI Team"
         
         try:
             # Check if LLM client is available
-            if hasattr(self.llm, "chat"): # It's an AsyncGroq client
+            if self.llm and hasattr(self.llm, "chat"): # It's an AsyncGroq client
                 response = await self.llm.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
                     model=self.model_fast,
                     temperature=0.7
                 )
-                email_body = response.choices[0].message.content
-            # Fallback handling just in case
-            else:
-                email_body = f"Dear {client.get('name')},\n\nWe are following up on {req.get('title')}. Please provide this at your earliest convenience.\n\nBest,\nAdvisoryAI Team"
+                if response and response.choices:
+                    email_body = response.choices[0].message.content
         except Exception as e:
-            logger.warning(f"LLM generation failed for chase: {e}")
-            email_body = f"Dear {client.get('name')},\n\nWe are following up on {req.get('title')}. Please provide this at your earliest convenience.\n\nBest,\nAdvisoryAI Team"
+            logger.warning(f"LLM generation failed for chase {request_id} (using fallback): {e}")
 
-        # 3. Queue Next Action & Update Status
-        retry_count = req.get("retry_count", 0) + 1
-        # Simple backoff: 3 days for high, 7 for standard
-        days_to_add = 3 if req.get("priority") == "HIGH" else 7
-        next_action_at = simulated_now + timedelta(days=days_to_add)
+        try:
+            # 3. Queue Next Action & Update Status
+            retry_count = req.get("retry_count", 0) + 1
+            # Simple backoff: 3 days for high, 7 for standard
+            days_to_add = 3 if req.get("priority") == "HIGH" else 7
+            next_action_at = simulated_now + timedelta(days=days_to_add)
 
-        self.supabase.table("requests").update({
-            "retry_count": retry_count,
-            "next_action_at": next_action_at.isoformat()
-        }).eq("id", request_id).execute()
+            self.supabase.table("requests").update({
+                "retry_count": retry_count,
+                "next_action_at": next_action_at.isoformat()
+            }).eq("id", request_id).execute()
 
-        # 4. Save Draft
-        self.supabase.table("email_drafts").insert({
-            "client_id": client.get("id"),
-            "to_email": client.get("email"),
-            "to_name": client.get("name"),
-            "subject": f"Follow Up: {req.get('title')}",
-            "body": email_body,
-            "context_type": "CHASE",
-            "context_summary": f"Chase #{retry_count} for {req.get('title')}",
-            "sent_at": simulated_now.isoformat(),
-            "created_at": simulated_now.isoformat()
-        }).execute()
+            # 4. Save Draft
+            self.supabase.table("email_drafts").insert({
+                "client_id": client.get("id"),
+                "to_email": client.get("email"),
+                "to_name": client.get("name"),
+                "subject": f"Follow Up: {req.get('title')}",
+                "body": email_body,
+                "context_type": "CHASE",
+                "context_summary": f"Chase #{retry_count} for {req.get('title')}",
+                "sent_at": simulated_now.isoformat(),
+                "created_at": simulated_now.isoformat()
+            }).execute()
 
-        # 5. Audit Log
-        self.supabase.table("audit_logs").insert({
-            "case_id": req.get("case_id"),
-            "action": "CHASE_SENT", 
-            "actor": "AGENT",
-            "reason": f"Automated chase #{retry_count} sent for {req.get('title')}",
-            "created_at": simulated_now.isoformat()
-        }).execute()
+            # 5. Audit Log
+            self.supabase.table("audit_logs").insert({
+                "case_id": req.get("case_id"),
+                "action": "CHASE_SENT", 
+                "actor": "AGENT",
+                "reason": f"Automated chase #{retry_count} sent for {req.get('title')}",
+                "created_at": simulated_now.isoformat()
+            }).execute()
 
-        return {"success": True, "action": "CHASE_SENT"}
+            return {"success": True, "action": "CHASE_SENT"}
+        except Exception as e:
+            logger.error(f"Error recording chase actions for {request_id}: {e}")
+            return {"success": False, "error": f"DB record failed: {str(e)}"}
 
     def get_actions_taken(self) -> list:
         """Return actions taken this session."""
