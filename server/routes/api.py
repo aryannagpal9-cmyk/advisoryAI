@@ -674,9 +674,10 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
         except Exception as e:
             logger.error(f"Error in relationship emails: {e}")
 
-        # 8. SIMULATE INBOUND EMAILS (Client Replies)
-        if random.random() < 0.6:  # 60% chance of inbound emails
-            try:
+        # 8. SIMULATE INBOUND EMAILS & REQUEST FULFILLMENT (Client Reactions)
+        try:
+            # A. Inbound Emails (Replies/Queries)
+            if random.random() < 0.6:
                 num_inbound = random.randint(1, 3)
                 clients = supabase.table("clients").select("id, name, email").execute().data or []
                 
@@ -693,6 +694,32 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
                         client = random.choice(clients)
                         inbound_type, base_content = random.choice(inbound_types)
                         
+                        # If it's a document submission, try to fulfill a request
+                        fulfilled_metadata = {}
+                        if inbound_type == "Document Submission":
+                            pending_reqs = supabase.table("requests").select("id, title").eq("client_owner_id", client["id"]).eq("status", "PENDING").limit(1).execute().data
+                            if pending_reqs:
+                                req = pending_reqs[0]
+                                supabase.table("requests").update({
+                                    "status": "FULFILLED",
+                                    "updated_at": simulated_now.isoformat()
+                                }).eq("id", req["id"]).execute()
+                                
+                                # Add to audit log
+                                supabase.table("audit_logs").insert({
+                                    "request_id": req["id"],
+                                    "action": "REQUEST_FULFILLED",
+                                    "actor": "CLIENT",
+                                    "reason": f"Client submitted: {req['title']}",
+                                    "created_at": simulated_now.isoformat()
+                                }).execute()
+                                
+                                actions_taken.append({
+                                    "action": "REQUEST_FULFILLED",
+                                    "description": f"{client['name']} fulfilled request: {req['title']}"
+                                })
+                                fulfilled_metadata = {"fulfilled_request_id": req["id"], "fulfilled_title": req["title"]}
+
                         supabase.table("email_drafts").insert({
                             "client_id": client["id"],
                             "to_email": "advisor@advisoryai.com",
@@ -701,6 +728,7 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
                             "body": f"From: {client['name']} <{client.get('email')}>\n\nHi,\n\n{base_content}\n\nBest regards,\n{client['name']}",
                             "context_type": "INBOUND",
                             "context_summary": f"Client reply: {inbound_type}",
+                            "status": "SENT", # Inbound emails are 'received' (SENT to us)
                             "sent_at": simulated_now.isoformat(),
                             "created_at": simulated_now.isoformat()
                         }).execute()
@@ -709,8 +737,31 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
                             "action": "INBOUND_EMAIL_RECEIVED",
                             "description": f"Email from {client['name']}: {inbound_type}"
                         })
-            except Exception as e:
-                logger.error(f"Error simulating inbound emails: {e}")
+
+            # B. Passive Fulfillment (Clients resolving items without an email, e.g. via portal)
+            if random.random() < 0.5:
+                # Find pending requests that are NOT already being processed in this batch's emails
+                already_fulfilled_ids = [a.get("request_id") for a in actions_taken if a.get("action") == "REQUEST_FULFILLED"]
+                pending_reqs_query = supabase.table("requests").select("*, cases(client_id, title)").eq("status", "PENDING")
+                if already_fulfilled_ids:
+                    pending_reqs_query = pending_reqs_query.not_.in_("id", already_fulfilled_ids)
+                
+                pending_reqs = pending_reqs_query.limit(5).execute().data
+                for req in (pending_reqs or []):
+                    if random.random() < 0.6: # 60% chance for each selected pending item
+                        supabase.table("requests").update({
+                            "status": "FULFILLED",
+                            "updated_at": simulated_now.isoformat(),
+                            "last_action_at": simulated_now.isoformat()
+                        }).eq("id", req["id"]).execute()
+                        
+                        actions_taken.append({
+                            "action": "REQUEST_FULFILLED",
+                            "description": f"Request fulfilled: {req['title']} (Case: {req.get('cases', {}).get('title')})",
+                            "request_id": req["id"]
+                        })
+        except Exception as e:
+            logger.error(f"Error simulating inbound/fulfillment: {e}")
 
         # Guaranteed feedback
         actions_taken.append({

@@ -8,8 +8,9 @@ interface Email {
     body: string;
     status: string;
     client_name?: string;
-    recipient_email: string;
+    to_email: string;
     created_at: string;
+    context_type?: string;
     clients?: { name: string };
 }
 
@@ -60,27 +61,35 @@ export const EmailList = ({ refreshTrigger }: { refreshTrigger?: number }) => {
                     ) : filteredEmails.length === 0 ? (
                         <div className="text-center py-10 text-muted font-bold text-xs uppercase tracking-widest">No Intelligence Found</div>
                     ) : (
-                        filteredEmails.map(email => (
-                            <button
-                                key={email.id}
-                                onClick={() => setSelectedEmail(email)}
-                                className={`w-full text-left p-5 rounded-2xl border transition-all duration-500 group relative overflow-hidden ${selectedEmail?.id === email.id
-                                    ? 'glass-glow-blue border-primary-500/30 shadow-glow-sm'
-                                    : 'glass border-white/5 hover:border-white/20'
-                                    }`}
-                            >
-                                <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                <div className="flex justify-between items-start mb-2 relative z-10">
-                                    <span className={`text-[9px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-md ${email.status === 'SENT' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-primary-500/10 text-primary-400'}`}>{email.status}</span>
-                                    <span className="text-[9px] font-bold text-muted uppercase tracking-widest">{new Date(email.created_at).toLocaleDateString()}</span>
-                                </div>
-                                <h4 className={`font-black text-sm truncate mb-1.5 tracking-tight relative z-10 transition-colors ${selectedEmail?.id === email.id ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>{email.subject}</h4>
-                                <div className="flex items-center gap-2 text-[10px] font-bold text-muted uppercase tracking-widest relative z-10">
-                                    <User size={12} className="text-primary-500/30" />
-                                    <span>{email.clients?.name || 'External Sink'}</span>
-                                </div>
-                            </button>
-                        ))
+                        filteredEmails.map(email => {
+                            const isInbound = email.context_type === 'INBOUND';
+                            return (
+                                <button
+                                    key={email.id}
+                                    onClick={() => setSelectedEmail(email)}
+                                    className={`w-full text-left p-5 rounded-2xl border transition-all duration-500 group relative overflow-hidden ${selectedEmail?.id === email.id
+                                        ? 'glass-glow-blue border-primary-500/30 shadow-glow-sm'
+                                        : 'glass border-white/5 hover:border-white/20'
+                                        }`}
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <div className="flex justify-between items-start mb-2 relative z-10">
+                                        <div className="flex items-center gap-2">
+                                            <span className={`text-[9px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-md ${isInbound ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                                                {isInbound ? 'INBOUND' : email.status}
+                                            </span>
+                                            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40">{isInbound ? '←' : '→'}</span>
+                                        </div>
+                                        <span className="text-[9px] font-bold text-muted uppercase tracking-widest">{new Date(email.created_at).toLocaleDateString()}</span>
+                                    </div>
+                                    <h4 className={`font-black text-sm truncate mb-1.5 tracking-tight relative z-10 transition-colors ${selectedEmail?.id === email.id ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>{email.subject}</h4>
+                                    <div className="flex items-center gap-2 text-[10px] font-bold text-muted uppercase tracking-widest relative z-10">
+                                        <User size={12} className="text-primary-500/30" />
+                                        <span>{email.clients?.name || 'External Sink'}</span>
+                                    </div>
+                                </button>
+                            );
+                        })
                     )}
                 </div>
             </div>
@@ -97,17 +106,23 @@ export const EmailList = ({ refreshTrigger }: { refreshTrigger?: number }) => {
                                     <p className="text-[10px] font-bold text-muted uppercase tracking-[0.3em]">Operational Transmission Log</p>
                                 </div>
                                 <div className="px-4 py-1.5 glass-glow-emerald border border-emerald-500/20 rounded-xl text-emerald-400 text-[10px] font-black uppercase tracking-widest shadow-glow-sm">
-                                    Status: {selectedEmail.status}
+                                    Status: {selectedEmail.context_type === 'INBOUND' ? 'RECEIVED' : selectedEmail.status}
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="glass bg-white/[0.03] p-4 rounded-2xl border border-white/5 group hover:border-white/10 transition-colors">
                                     <p className="text-[9px] text-muted uppercase font-black tracking-widest mb-1.5 opacity-50">Origin Point</p>
-                                    <p className="text-xs text-white font-bold tracking-tight uppercase group-hover:text-primary-400 transition-colors">Strategic AI Hub <span className="text-muted font-medium normal-case ml-1">{"<core@advisors.ai>"}</span></p>
+                                    <p className="text-xs text-white font-bold tracking-tight uppercase group-hover:text-primary-400 transition-colors">
+                                        {selectedEmail.context_type === 'INBOUND' ? selectedEmail.clients?.name : 'Strategic AI Hub'}
+                                        {selectedEmail.context_type === 'INBOUND' ? '' : <span className="text-muted font-medium normal-case ml-1">{"<core@advisors.ai>"}</span>}
+                                    </p>
                                 </div>
                                 <div className="glass bg-white/[0.03] p-4 rounded-2xl border border-white/5 group hover:border-white/10 transition-colors">
                                     <p className="text-[9px] text-muted uppercase font-black tracking-widest mb-1.5 opacity-50">Target Destination</p>
-                                    <p className="text-xs text-white font-bold tracking-tight uppercase group-hover:text-primary-400 transition-colors">{selectedEmail.clients?.name} <span className="text-muted font-medium normal-case ml-1">{"<" + selectedEmail.recipient_email + ">"}</span></p>
+                                    <p className="text-xs text-white font-bold tracking-tight uppercase group-hover:text-primary-400 transition-colors">
+                                        {selectedEmail.context_type === 'INBOUND' ? 'Strategic AI Hub' : selectedEmail.clients?.name}
+                                        <span className="text-muted font-medium normal-case ml-1">{" <" + selectedEmail.to_email + ">"}</span>
+                                    </p>
                                 </div>
                             </div>
                         </div>
