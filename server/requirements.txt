@@ -1,0 +1,10 @@
+fastmcp
+mcp[cli]
+supabase
+requests
+python-dotenv
+fastapi
+uvicorn
+starlette
+pydantic
+groq

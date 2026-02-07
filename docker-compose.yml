@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  server:
+    build: ./server
+    container_name: agent_server
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - POSTMARK_SERVER_TOKEN=${POSTMARK_SERVER_TOKEN}
+      - ENVIRONMENT=production
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      args:
+        - VITE_API_URL=http://localhost:8000/api
+    container_name: agent_client
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+# No database service as we use Supabase cloud
