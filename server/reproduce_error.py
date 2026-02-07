@@ -13,61 +13,58 @@ from db.supabase import get_supabase
 from services.llm_service import GroqService
 from agents.smart_agent import SmartAgent
 
-async def test_advance_day():
+async def test_fulfillment():
     load_dotenv()
     supabase = get_supabase()
     llm = GroqService()
     agent = SmartAgent(supabase, llm.client)
     
-    # Mocking the _get_simulated_now and _advance_simulated_now from api.py
-    def _get_simulated_now():
-        try:
-            res = supabase.table("audit_logs").select("metadata").eq("action", "SIMULATION_STATE").order("created_at", desc=True).limit(1).execute()
-            if res.data and res.data[0].get("metadata") and "current_date" in res.data[0]["metadata"]:
-                return datetime.fromisoformat(res.data[0]["metadata"]["current_date"])
-        except Exception as e:
-            print(f"Error fetching simulated time from DB: {e}")
-        
-        dt = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-        return dt
-
-    def _save_simulated_now(dt):
-        supabase.table("audit_logs").insert({
-            "action": "SIMULATION_STATE",
-            "actor": "SYSTEM",
-            "reason": f"Time advanced to {dt.isoformat()}",
-            "metadata": {"current_date": dt.isoformat()}
-        }).execute()
-
-    def _advance_simulated_now():
-        now = _get_simulated_now()
-        new_now = now + timedelta(days=1)
-        _save_simulated_now(new_now)
-        return new_now
-
-    print("Advancing day...")
-    simulated_now = _advance_simulated_now()
-    print(f"New simulated time: {simulated_now}")
+    simulated_now = datetime.now(timezone.utc)
+    actions_taken = []
     
-    # 4. MASTER CHASE LOOP
-    print("Checking daily chases...")
-    pending = supabase.table("requests").select("*, cases(id, title, clients(id, name, email))").eq("status", "PENDING").execute()
+    print("Testing Inbound Emails...")
+    num_inbound = 2
+    all_clients = supabase.table("clients").select("id, name, email").execute().data or []
     
-    for req in (pending.data or []):
-        if req.get("next_action_at"):
-            try:
-                next_action_str = req["next_action_at"].replace('Z', '+00:00')
-                next_action = datetime.fromisoformat(next_action_str)
-                if next_action.tzinfo is None:
-                    next_action = next_action.replace(tzinfo=timezone.utc)
-                
-                if next_action <= simulated_now:
-                    print(f"Triggering chase for request: {req.get('id')}")
-                    chase_res = await agent._trigger_chase(req["id"], simulated_now=simulated_now)
-                    print(f"Chase result: {chase_res}")
-            except Exception as e:
-                print(f"Error in chase logic for request {req.get('id')}: {e}")
-                raise e
+    clients_with_pending = supabase.table("requests").select("client_owner_id").eq("status", "PENDING").not_.is_("client_owner_id", "null").execute().data or []
+    pending_client_ids = list(set([r["client_owner_id"] for r in clients_with_pending]))
+    print(f"Pending client IDs: {pending_client_ids}")
+
+    for _ in range(num_inbound):
+        inbound_type = "Document Submission"
+        if pending_client_ids:
+            client_id = pending_client_ids[0] # Pick the first one for testing
+            client = next((c for c in all_clients if c["id"] == client_id), None)
+            if client:
+                print(f"Attempting fulfillment for {client['name']}")
+                pending_reqs = supabase.table("requests").select("id, title").eq("client_owner_id", client["id"]).eq("status", "PENDING").limit(1).execute().data
+                if pending_reqs:
+                    req = pending_reqs[0]
+                    print(f"Fulfilling: {req['title']}")
+                    res = supabase.table("requests").update({"status": "FULFILLED"}).eq("id", req["id"]).execute()
+                    print(f"Update result: {res.data}")
+                    actions_taken.append({
+                        "action": "REQUEST_FULFILLED",
+                        "request_id": req["id"]
+                    })
+
+    print(f"Actions taken match REQUEST_FULFILLED: {[a for a in actions_taken if a.get('action') == 'REQUEST_FULFILLED']}")
+    
+    print("\nTesting Passive Fulfillment...")
+    already_fulfilled_ids = [a.get("request_id") for a in actions_taken if a.get("action") == "REQUEST_FULFILLED" and a.get("request_id")]
+    print(f"Already fulfilled IDs: {already_fulfilled_ids}")
+    
+    pending_reqs_query = supabase.table("requests").select("*, cases(client_id, title)").eq("status", "PENDING")
+    if already_fulfilled_ids:
+        pending_reqs_query = pending_reqs_query.not_.in_("id", already_fulfilled_ids)
+    
+    pending_reqs = pending_reqs_query.limit(5).execute().data
+    print(f"Potential passive fulfillments: {len(pending_reqs or [])}")
+    for req in (pending_reqs or []):
+        print(f"Passively fulfilling: {req['title']}")
+        res = supabase.table("requests").update({"status": "FULFILLED"}).eq("id", req["id"]).execute()
+        print(f"Passive result: {res.data}")
 
 if __name__ == "__main__":
-    asyncio.run(test_advance_day())
+    asyncio.run(test_fulfillment())
+

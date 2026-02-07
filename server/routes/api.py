@@ -677,9 +677,13 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
         # 8. SIMULATE INBOUND EMAILS & REQUEST FULFILLMENT (Client Reactions)
         try:
             # A. Inbound Emails (Replies/Queries)
-            if random.random() < 0.6:
-                num_inbound = random.randint(1, 3)
-                clients = supabase.table("clients").select("id, name, email").execute().data or []
+            if random.random() < 0.7:  # Slightly increased probability
+                num_inbound = random.randint(1, 4)  # 1 to 4 emails
+                all_clients = supabase.table("clients").select("id, name, email").execute().data or []
+                
+                # Pre-fetch clients with pending requests to prioritize them for document submissions
+                clients_with_pending = supabase.table("requests").select("client_owner_id").eq("status", "PENDING").not_.is_("client_owner_id", "null").execute().data or []
+                pending_client_ids = list(set([r["client_owner_id"] for r in clients_with_pending]))
                 
                 inbound_types = [
                     ("Document Submission", "Please find attached the documents you requested."),
@@ -690,9 +694,20 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
                 ]
                 
                 for _ in range(num_inbound):
-                    if clients:
-                        client = random.choice(clients)
-                        inbound_type, base_content = random.choice(inbound_types)
+                    if all_clients:
+                        # If we have many pending requests, increase chance of "Document Submission"
+                        current_inbound_types = inbound_types
+                        if len(pending_client_ids) > 3 and random.random() < 0.5:
+                            inbound_type, base_content = inbound_types[0] # Force Document Submission
+                        else:
+                            inbound_type, base_content = random.choice(inbound_types)
+                        
+                        # Pick a client. If document submission, try to pick one who has pending requests.
+                        if inbound_type == "Document Submission" and pending_client_ids:
+                            client_id = random.choice(pending_client_ids)
+                            client = next((c for c in all_clients if c["id"] == client_id), random.choice(all_clients))
+                        else:
+                            client = random.choice(all_clients)
                         
                         # If it's a document submission, try to fulfill a request
                         fulfilled_metadata = {}
@@ -716,7 +731,8 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
                                 
                                 actions_taken.append({
                                     "action": "REQUEST_FULFILLED",
-                                    "description": f"{client['name']} fulfilled request: {req['title']}"
+                                    "description": f"{client['name']} fulfilled request: {req['title']}",
+                                    "request_id": req["id"]
                                 })
                                 fulfilled_metadata = {"fulfilled_request_id": req["id"], "fulfilled_title": req["title"]}
 
@@ -739,21 +755,31 @@ Keep it warm and not pushy. Sign off as "AdvisoryAI Team"."""
                         })
 
             # B. Passive Fulfillment (Clients resolving items without an email, e.g. via portal)
-            if random.random() < 0.5:
+            if random.random() < 0.7:  # Increased from 0.5
                 # Find pending requests that are NOT already being processed in this batch's emails
-                already_fulfilled_ids = [a.get("request_id") for a in actions_taken if a.get("action") == "REQUEST_FULFILLED"]
+                already_fulfilled_ids = [a.get("request_id") for a in actions_taken if a.get("action") == "REQUEST_FULFILLED" and a.get("request_id")]
                 pending_reqs_query = supabase.table("requests").select("*, cases(client_id, title)").eq("status", "PENDING")
                 if already_fulfilled_ids:
                     pending_reqs_query = pending_reqs_query.not_.in_("id", already_fulfilled_ids)
                 
                 pending_reqs = pending_reqs_query.limit(5).execute().data
                 for req in (pending_reqs or []):
-                    if random.random() < 0.6: # 60% chance for each selected pending item
+                    if random.random() < 0.7: # 70% chance (up from 60%) for each selected pending item
                         supabase.table("requests").update({
                             "status": "FULFILLED",
                             "updated_at": simulated_now.isoformat(),
                             "last_action_at": simulated_now.isoformat()
                         }).eq("id", req["id"]).execute()
+                        
+                        # Add to audit log for tracking
+                        supabase.table("audit_logs").insert({
+                            "request_id": req["id"],
+                            "case_id": req.get("case_id"),
+                            "action": "REQUEST_FULFILLED",
+                            "actor": "CLIENT",
+                            "reason": f"Request fulfilled via portal: {req['title']}",
+                            "created_at": simulated_now.isoformat()
+                        }).execute()
                         
                         actions_taken.append({
                             "action": "REQUEST_FULFILLED",
