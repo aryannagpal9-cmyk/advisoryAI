@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Video, Calendar, Clock, User, MapPin, FileText, CheckSquare, Loader2 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 interface MeetingDetailProps {
     meetingId: string;
@@ -37,7 +38,7 @@ export const MeetingDetail = ({ meetingId, onClose }: MeetingDetailProps) => {
     useEffect(() => {
         const fetchMeeting = async () => {
             try {
-                const res = await fetch(`http://localhost:8000/api/meetings/${meetingId}`);
+                const res = await fetch(`${API_BASE_URL}/api/meetings/${meetingId}`);
                 if (!res.ok) throw new Error('Meeting not found');
                 const data = await res.json();
                 setMeeting(data);

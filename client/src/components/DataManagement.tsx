@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Building, Plus, Search, Edit2, Check, X, Phone, Mail, Globe, Clock } from 'lucide-react';
 import { ClientProfile } from './ClientProfile';
+import { API_BASE_URL } from '../config';
 
 interface Client {
     id: string;
@@ -41,7 +42,7 @@ export function DataManagement() {
         setIsLoading(true);
         try {
             const endpoint = activeTab === 'clients' ? '/api/clients' : '/api/providers';
-            const response = await fetch(`http://localhost:8000${endpoint}`);
+            const response = await fetch(`${API_BASE_URL}${endpoint}`);
             const data = await response.json();
 
             if (activeTab === 'clients') {
@@ -77,8 +78,8 @@ export function DataManagement() {
             const endpoint = activeTab === 'clients' ? '/api/clients' : '/api/providers';
             const method = editingItem ? 'PATCH' : 'POST';
             const url = editingItem
-                ? `http://localhost:8000${endpoint}/${editingItem.id}`
-                : `http://localhost:8000${endpoint}`;
+                ? `${API_BASE_URL}${endpoint}/${editingItem.id}`
+                : `${API_BASE_URL}${endpoint}`;
 
             const response = await fetch(url, {
                 method,

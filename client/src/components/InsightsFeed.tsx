@@ -42,7 +42,8 @@ interface InsightsFeedProps {
     refreshTrigger?: number;
 }
 
-const API_BASE = 'http://localhost:8000/api';
+import { API_BASE_URL } from '../config';
+const API_BASE = `${API_BASE_URL}/api`;
 
 const CATEGORY_CONFIG: Record<string, { icon: React.ComponentType<any>; color: string; label: string }> = {
     INVESTMENT: { icon: TrendingUp, color: 'text-green-400 bg-green-400/10', label: 'Investment' },

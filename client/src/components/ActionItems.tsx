@@ -54,7 +54,8 @@ interface ActionItemsProps {
     refreshTrigger?: number;
 }
 
-const API_BASE = 'http://localhost:8000/api';
+import { API_BASE_URL } from '../config';
+const API_BASE = `${API_BASE_URL}/api`;
 
 const STATUS_CONFIG: Record<string, { icon: React.ComponentType<any>; color: string; bgColor: string }> = {
     PENDING: { icon: Circle, color: 'text-gray-400', bgColor: 'bg-gray-400/10' },

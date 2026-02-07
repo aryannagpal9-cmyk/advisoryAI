@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, Clock, CheckCircle, MoreHorizontal, Send, Eye } from 'lucide-react';
 import clsx from 'clsx';
+import { API_BASE_URL } from '../config';
 
 interface Request {
     id: string;
@@ -22,7 +23,7 @@ export function ExceptionFeed({ onViewCase, refreshTrigger }: { onViewCase: (cas
 
     const fetchExceptions = () => {
         setLoading(true);
-        fetch('http://localhost:8000/api/feed/exceptions')
+        fetch(`${API_BASE_URL}/api/feed/exceptions`)
             .then(res => res.json())
             .then(data => setItems(data))
             .catch(err => console.error("Failed to fetch feed", err))
@@ -36,7 +37,7 @@ export function ExceptionFeed({ onViewCase, refreshTrigger }: { onViewCase: (cas
     const handleResolve = async (requestId: string) => {
         setActionLoading(requestId);
         try {
-            await fetch(`http://localhost:8000/api/requests/${requestId}/resolve`, { method: 'POST' });
+            await fetch(`${API_BASE_URL}/api/requests/${requestId}/resolve`, { method: 'POST' });
             fetchExceptions(); // Refresh
         } catch (e) {
             console.error('Resolve failed:', e);
@@ -48,7 +49,7 @@ export function ExceptionFeed({ onViewCase, refreshTrigger }: { onViewCase: (cas
     const handleChase = async (requestId: string) => {
         setActionLoading(requestId);
         try {
-            await fetch(`http://localhost:8000/api/requests/${requestId}/chase`, { method: 'POST' });
+            await fetch(`${API_BASE_URL}/api/requests/${requestId}/chase`, { method: 'POST' });
             fetchExceptions();
         } catch (e) {
             console.error('Chase failed:', e);

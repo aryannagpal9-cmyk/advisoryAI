@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Mail, Phone, Briefcase, Shield, Calendar, CheckSquare, TrendingUp, Loader2, ArrowLeft } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 interface ClientProfileProps {
     clientId: string;
@@ -68,12 +69,12 @@ export const ClientProfile = ({ clientId, onBack }: ClientProfileProps) => {
     useEffect(() => {
         const fetchProfile = async () => {
             try {
-                const res = await fetch(`http://localhost:8000/api/clients/${clientId}/profile`);
+                const res = await fetch(`${API_BASE_URL}/api/clients/${clientId}/profile`);
                 if (!res.ok) throw new Error('Client not found');
                 const profile = await res.json();
 
                 // Also fetch cases
-                const casesRes = await fetch(`http://localhost:8000/api/cases?client_id=${clientId}`);
+                const casesRes = await fetch(`${API_BASE_URL}/api/cases?client_id=${clientId}`);
                 const cases = casesRes.ok ? await casesRes.json() : [];
 
                 setData({ ...profile, cases });

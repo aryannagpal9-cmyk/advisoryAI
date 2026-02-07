@@ -14,24 +14,23 @@ import { MeetingList } from './components/MeetingList';
 import {
   LayoutDashboard,
   ShieldAlert,
-  History as HistoryIcon,
   Settings as SettingsIcon,
   Bot,
-  Briefcase,
-  Calendar,
   Sparkles,
   CheckSquare,
   MessageSquare,
   Database,
+  Plus,
   RotateCcw,
+  Loader2,
+  Briefcase,
   Mail,
   Video,
-  Activity,
-  Plus,
-  Loader2,
+  Activity
 } from 'lucide-react';
 import { Toast } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { API_BASE_URL, WS_BASE_URL } from './config';
 
 
 type Tab = 'dashboard' | 'exceptions' | 'cases' | 'settings' | 'insights' | 'actions' | 'data' | 'emails' | 'meetings';
@@ -49,7 +48,7 @@ function App() {
 
   React.useEffect(() => {
     // Fetch initial simulated date
-    fetch('http://localhost:8000/api/dashboard/overview')
+    fetch(`${API_BASE_URL}/api/dashboard/overview`)
       .then(res => res.json())
       .then(data => {
         if (data.simulated_date) setSimulatedDate(data.simulated_date);
@@ -60,7 +59,7 @@ function App() {
 
     const connectWebSocket = () => {
       try {
-        ws = new WebSocket('ws://localhost:8000/ws');
+        ws = new WebSocket(WS_BASE_URL);
 
         ws.onopen = () => {
           console.log('WebSocket connected');
@@ -125,7 +124,7 @@ function App() {
   }, []);
 
   const fetchStats = () => {
-    fetch('http://localhost:8000/api/dashboard/stats')
+    fetch(`${API_BASE_URL}/api/dashboard/stats`)
       .then(res => res.json())
       .then(data => {
         setActiveChases(data.pending_requests);
@@ -137,7 +136,7 @@ function App() {
   const handleSimulateDay = async () => {
     setIsSimulating(true);
     try {
-      const res = await fetch('http://localhost:8000/api/simulate/advance-day', {
+      const res = await fetch(`${API_BASE_URL}/api/simulate/advance-day`, {
         method: 'POST'
       });
       const data = await res.json();
@@ -190,7 +189,7 @@ function App() {
 
   const handleResetSimulation = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/simulate/reset', {
+      const res = await fetch(`${API_BASE_URL}/api/simulate/reset`, {
         method: 'POST'
       });
       const data = await res.json();
@@ -210,7 +209,7 @@ function App() {
 
   const handleCreateCase = async (data: any) => {
     try {
-      const res = await fetch('http://localhost:8000/api/cases', {
+      const res = await fetch(`${API_BASE_URL}/api/cases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)

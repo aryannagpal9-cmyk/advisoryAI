@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Video, Calendar, Clock, User, Plus, Search, Loader2, MapPin, MoreHorizontal, FileText } from 'lucide-react';
 import { MeetingDetail } from './MeetingDetail';
+import { API_BASE_URL } from '../config';
 
 interface Meeting {
     id: string;
@@ -23,7 +24,7 @@ export const MeetingList = ({ refreshTrigger }: { refreshTrigger?: number }) => 
     useEffect(() => {
         const fetchMeetings = async () => {
             try {
-                const res = await fetch('http://localhost:8000/api/meetings');
+                const res = await fetch(`${API_BASE_URL}/api/meetings`);
                 const data = await res.json();
                 setMeetings(data);
             } catch (e) {

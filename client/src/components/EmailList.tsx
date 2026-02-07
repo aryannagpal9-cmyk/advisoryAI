@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Mail, Search, Send, Loader2, User } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 interface Email {
     id: string;
@@ -21,7 +22,7 @@ export const EmailList = ({ refreshTrigger }: { refreshTrigger?: number }) => {
     useEffect(() => {
         const fetchEmails = async () => {
             try {
-                const res = await fetch('http://localhost:8000/api/emails');
+                const res = await fetch(`${API_BASE_URL}/api/emails`);
                 const data = await res.json();
                 setEmails(data);
             } catch (e) {

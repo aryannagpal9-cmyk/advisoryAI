@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { API_BASE_URL } from '../config';
 import {
     Users,
     FileText,
@@ -52,7 +53,7 @@ export function Dashboard({ onViewCase, onNavigate, refreshTrigger }: DashboardP
 
     const fetchData = async () => {
         try {
-            const res = await fetch('http://localhost:8000/api/dashboard/overview');
+            const res = await fetch(`${API_BASE_URL}/api/dashboard/overview`);
             const data = await res.json();
 
             setStats(data.stats);

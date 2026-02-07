@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Clock, FileText, Send, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 interface CaseDetailProps {
     caseId: string;
@@ -13,7 +14,7 @@ export function CaseDetail({ caseId, onBack }: CaseDetailProps) {
 
     const fetchCase = () => {
         setLoading(true);
-        fetch(`http://localhost:8000/api/cases/${caseId}`)
+        fetch(`${API_BASE_URL}/api/cases/${caseId}`)
             .then(res => res.json())
             .then(setData)
             .catch(err => console.error(err))
@@ -27,7 +28,7 @@ export function CaseDetail({ caseId, onBack }: CaseDetailProps) {
     const handleChase = async (requestId: string) => {
         setActionLoading(requestId);
         try {
-            await fetch(`http://localhost:8000/api/requests/${requestId}/chase`, { method: 'POST' });
+            await fetch(`${API_BASE_URL}/api/requests/${requestId}/chase`, { method: 'POST' });
             fetchCase(); // Refresh data
         } catch (e) {
             console.error('Chase failed:', e);
@@ -39,7 +40,7 @@ export function CaseDetail({ caseId, onBack }: CaseDetailProps) {
     const handleResolve = async (requestId: string) => {
         setActionLoading(requestId);
         try {
-            await fetch(`http://localhost:8000/api/requests/${requestId}/resolve`, { method: 'POST' });
+            await fetch(`${API_BASE_URL}/api/requests/${requestId}/resolve`, { method: 'POST' });
             fetchCase();
         } catch (e) {
             console.error('Resolve failed:', e);
@@ -51,7 +52,7 @@ export function CaseDetail({ caseId, onBack }: CaseDetailProps) {
     const handleEscalate = async (requestId: string) => {
         setActionLoading(requestId);
         try {
-            await fetch(`http://localhost:8000/api/requests/${requestId}/escalate`, { method: 'POST' });
+            await fetch(`${API_BASE_URL}/api/requests/${requestId}/escalate`, { method: 'POST' });
             fetchCase();
         } catch (e) {
             console.error('Escalate failed:', e);

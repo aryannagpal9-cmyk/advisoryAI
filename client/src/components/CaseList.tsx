@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Search, ChevronRight, User, RefreshCw } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 interface Case {
     id: string;
@@ -17,7 +18,7 @@ export function CaseList({ onSelectCase, refreshTrigger }: { onSelectCase: (id: 
 
     const fetchCases = () => {
         setLoading(true);
-        fetch('http://localhost:8000/api/cases')
+        fetch(`${API_BASE_URL}/api/cases`)
             .then(res => res.json())
             .then(data => setCases(data))
             .catch(err => console.error(err))
