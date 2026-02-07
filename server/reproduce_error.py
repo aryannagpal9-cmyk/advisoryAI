@@ -20,23 +20,24 @@ async def test_advance_day():
     agent = SmartAgent(supabase, llm.client)
     
     # Mocking the _get_simulated_now and _advance_simulated_now from api.py
-    SIM_STATE_FILE = "simulation_state.json"
-    
     def _get_simulated_now():
-        if not os.path.exists(SIM_STATE_FILE):
-            dt = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-            return dt
         try:
-            with open(SIM_STATE_FILE, "r") as f:
-                data = json.load(f)
-                return datetime.fromisoformat(data["current_date"])
-        except:
-            dt = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-            return dt
+            res = supabase.table("audit_logs").select("metadata").eq("action", "SIMULATION_STATE").order("created_at", desc=True).limit(1).execute()
+            if res.data and res.data[0].get("metadata") and "current_date" in res.data[0]["metadata"]:
+                return datetime.fromisoformat(res.data[0]["metadata"]["current_date"])
+        except Exception as e:
+            print(f"Error fetching simulated time from DB: {e}")
+        
+        dt = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
+        return dt
 
     def _save_simulated_now(dt):
-        with open(SIM_STATE_FILE, "w") as f:
-            json.dump({"current_date": dt.isoformat()}, f)
+        supabase.table("audit_logs").insert({
+            "action": "SIMULATION_STATE",
+            "actor": "SYSTEM",
+            "reason": f"Time advanced to {dt.isoformat()}",
+            "metadata": {"current_date": dt.isoformat()}
+        }).execute()
 
     def _advance_simulated_now():
         now = _get_simulated_now()

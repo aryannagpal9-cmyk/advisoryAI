@@ -22,28 +22,36 @@ logger = get_logger(__name__)
 groq_service = GroqService()
 
 # --- Simulation State ---
-SIM_STATE_FILE = "simulation_state.json"
+# No longer using SIM_STATE_FILE = "simulation_state.json" as it causes errors on read-only file systems (e.g. Vercel)
 
 def _get_simulated_now():
-    """Get the current simulated time, persisting across requests."""
-    if not os.path.exists(SIM_STATE_FILE):
-        # Default to today 9am
-        dt = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-        _save_simulated_now(dt)
-        return dt
+    """Get the current simulated time, persisting across requests via Supabase."""
     try:
-        with open(SIM_STATE_FILE, "r") as f:
-            data = json.load(f)
-            return datetime.fromisoformat(data["current_date"])
-    except:
-        dt = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-        return dt
+        # Get the latest simulation state from audit_logs
+        res = supabase.table("audit_logs").select("metadata").eq("action", "SIMULATION_STATE").order("created_at", desc=True).limit(1).execute()
+        if res.data and res.data[0].get("metadata") and "current_date" in res.data[0]["metadata"]:
+            return datetime.fromisoformat(res.data[0]["metadata"]["current_date"])
+    except Exception as e:
+        logger.error(f"Error fetching simulated time from DB: {e}")
+    
+    # Default to today 9am UTC if not found or error
+    dt = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
+    return dt
 
 def _save_simulated_now(dt: datetime):
-    with open(SIM_STATE_FILE, "w") as f:
-        json.dump({"current_date": dt.isoformat()}, f)
+    """Save the simulated time to Supabase audit_logs."""
+    try:
+        supabase.table("audit_logs").insert({
+            "action": "SIMULATION_STATE",
+            "actor": "SYSTEM",
+            "reason": f"Time advanced to {dt.isoformat()}",
+            "metadata": {"current_date": dt.isoformat()}
+        }).execute()
+    except Exception as e:
+        logger.error(f"Error saving simulated time to DB: {e}")
 
 def _advance_simulated_now():
+    """Advance the simulated time by 1 day."""
     now = _get_simulated_now()
     new_now = now + timedelta(days=1)
     _save_simulated_now(new_now)
