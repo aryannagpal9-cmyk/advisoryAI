@@ -437,8 +437,7 @@ class SmartAgent:
 
         self.supabase.table("requests").update({
             "retry_count": retry_count,
-            "next_action_at": next_action_at.isoformat(),
-            "updated_at": simulated_now.isoformat()
+            "next_action_at": next_action_at.isoformat()
         }).eq("id", request_id).execute()
 
         # 4. Save Draft

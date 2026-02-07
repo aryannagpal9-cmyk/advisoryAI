@@ -487,6 +487,42 @@ Sign off as "AdvisoryAI Team". Keep it concise but comprehensive."""
             actions_taken.append({"action": "MOM_SENT", "description": f"Minutes of Meeting sent for: {meeting_title}"})
     except Exception as e: logger.error(f"Error in Meeting Completion/MoM: {e}")
 
+    # 3b. SCHEDULE NEW MEETINGS
+    if random.random() < 0.3:
+        try:
+            clients = supabase.table("clients").select("id, name, email").execute().data or []
+            if clients:
+                client = random.choice(clients)
+                meeting_types = ["Annual Review", "Investment Strategy", "Retirement Planning", "Tax Optimization", "Portfolio Rebalancing"]
+                title = f"{random.choice(meeting_types)} with {client['name']}"
+                
+                # Schedule 2-10 days in the future
+                scheduled_at = simulated_now + timedelta(days=random.randint(2, 10), hours=random.randint(9, 16))
+                
+                new_meeting = supabase.table("meetings").insert({
+                    "client_id": client["id"],
+                    "title": title,
+                    "status": "SCHEDULED",
+                    "meeting_type": "VIDEO_CALL",
+                    "scheduled_at": scheduled_at.isoformat(),
+                    "created_at": simulated_now.isoformat(),
+                    "topics_discussed": [random.choice(meeting_types)],
+                    "recommendations_made": [{"type": "Follow-up", "detail": "Discussed during simulation"}]
+                }).execute()
+                
+                if new_meeting.data:
+                    actions_taken.append({
+                        "action": "MEETING_SCHEDULED", 
+                        "description": f"New meeting scheduled: {title} on {scheduled_at.strftime('%d %b')}"
+                    })
+                    
+                    supabase.table("audit_logs").insert({
+                        "action": "MEETING_SCHEDULED", "actor": "SYSTEM",
+                        "reason": f"System scheduled a meeting: {title}", 
+                        "created_at": simulated_now.isoformat()
+                    }).execute()
+        except Exception as e: logger.error(f"Error Scheduling Meeting: {e}")
+
     # 4. MASTER CHASE LOOP (Agent checks ALL pending daily)
     logger.info(f"AGENT CHECKING DAILY CHASES: {simulated_now.date()}")
     pending = supabase.table("requests").select("*, cases(id, title, clients(id, name, email))").eq("status", "PENDING").execute()

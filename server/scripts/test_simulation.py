@@ -15,25 +15,26 @@ def test_advance():
             # print(json.dumps(data, indent=2))
             actions = data.get("details", [])
             
-            chases = [a for a in actions if "CHASE" in a.get("action", "")]
-            emails = [a for a in actions if "EMAIL" in a.get("action", "")]
-            moms = [a for a in actions if "MOM" in a.get("action", "")]
-            cases = [a for a in actions if "CASE_CREATED" in a.get("action", "")]
+            action_counts = {}
+            for a in actions:
+                act = a.get("action", "UNKNOWN")
+                action_counts[act] = action_counts.get(act, 0) + 1
+                if act == "SIM_ERROR":
+                    print(f"  ERROR: {a.get('description')}")
             
-            print(f"  Cases Created: {len(cases)}")
-            print(f"  Chases Sent: {len(chases)}")
-            print(f"  Emails Sent: {len(emails)}")
-            print(f"  MoMs Sent: {len(moms)}")
+            for act, count in action_counts.items():
+                print(f"  {act}: {count}")
+            
             print(f"  Total Actions: {len(actions)}")
             
-            if len(chases) > 0:
+            if action_counts.get("CHASE_SENT") or action_counts.get("CHASE_EMAIL_SENT"):
                 print("\nSUCCESS: Chase actions observed!")
                 return True
-            elif len(cases) > 0:
-                print("\nWARNING: Cases created but NO chase sent? Check agent logic.")
+            elif action_counts.get("CASE_CREATED"):
+                print("\nCase created, check for chase in next runs.")
                 return False
             else:
-                print("\nNo cases created this run. Try again.")
+                print("\nContinuing simulation...")
                 return False
         else:
             print("FAILED: Server returned error")
